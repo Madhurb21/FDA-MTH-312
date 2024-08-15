@@ -1,0 +1,257 @@
+---
+title: "Functional Data Regression"
+author: "Madhur Bansal (210572)"
+date: "2024-03-14"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+# Simulating the data
+
+We construct a random variable $X_{(t)}$ from $L^2_{[0, 1]}$ space using the following: $$X_{(t)} = (c_1 * e^t) + sin(c_2 * 10t) + (c_3*2t) $$ where $c_1$, $c_2$, $c_3$ are random variables drawn from $uniform(0, 2)$. We generate (n = 300) samples of $X_{(t)}$ as our given data. Here is the plot of 5 samples from the generated data.
+
+```{r data_generation}
+library(fda)
+
+set.seed(1)
+
+n_samples <- 300
+n_test <- 100
+n_time_pts <- 100
+
+# Evaluates a function given the random coeff.
+evaluate_x <- function(coeff, t)
+{
+  exp_1 <- coeff[1] * exp(t)
+  exp_2 <- sin(coeff[2]* 10 * t)
+  exp_3 <- coeff[3] * 2 * t
+  
+  return(exp_3 + exp_2 + exp_1)
+}
+
+# Random coeff for the given data
+X_sample <- matrix(data = runif(3*n_samples, min = 0, max = 2),
+            nrow = n_samples, byrow = T)
+
+X_test <- matrix(data = runif(3*n_test, min = 0, max = 2),
+                 nrow = n_test, byrow = T)
+
+# Given Xi's plot
+grid_x <- seq(0, 1, length = n_time_pts)
+plot(x = 0, y = 0, xlim = c(0, 1), ylim = c(-1, 12), 
+     xlab = "t", ylab = "X(t)",
+     main = "Generated Data (5 samples)", type = 'n')
+
+for(i in 1:5)
+{
+  grid_y <- evaluate_x(coeff = X_sample[i, ], t = grid_x)
+  lines(grid_x, grid_y, col = i)
+}
+legend("topleft", legend = paste(1:5), 
+       col = 1:5, lty = 1)
+```
+
+We simulate real $Y$ using the following:
+
+$$ Y = m(X_{(t)}) + \epsilon $$
+
+where $m(X_{(t)}) = \int_0^1X_{(t)}^2 (sin(t) + cos(t)) \space dt$ and $\epsilon$ \~ $N(0, 1)$
+
+```{r calculating_y}
+operator_x <- function(coeff)
+{
+  fn <- integrate(f = function(t){evaluate_x(coeff, t)^2 * (sin(t) + cos(t))},
+                  lower = 0, upper = 1)$value
+  return(fn)
+}
+
+y_sample <- numeric(length = n_samples)
+y_sample <- apply(X = X_sample, MARGIN = 1, FUN = operator_x)
+y_sample <- y_sample + rnorm(n = n_samples)
+
+y_real <- apply(X = X_test, MARGIN = 1, FUN = operator_x)
+```
+
+Here are the real values of $y_i$ for above $X_{(t)}^i$ in respective order:
+
+```{r print_y}
+print(head(y_sample))
+```
+
+# Functional Linear Regression
+
+Initially I predict the response variable using in-built functional linear regression function *fdRegress(.)*. The only reason to predict using the Linear Regression model is to get a baseline for model comparison. It tries to find $\beta$ such that:
+
+$$ Y_i = \beta_0 + \int_0^1X_{i}(t)\beta(t)dt + \epsilon_i$$
+Both $X_i(t)$ and $\beta(t)$ can be expanded using orthonormal basis functions in $L_{2}$ space, say K:
+
+$$X_i(t) \approx \sum_{k=1}^Kc_{ik}\phi_k \space,  \space \beta(t)  \approx \sum_{k=1}^Kb_{k}\phi_k \space$$
+Expanding the respective terms, we get:
+$$Y_i = \beta_0 + \sum_{k = 1}^Kb_kc_{ik}$$
+
+# Proposed Estimator (Based on Nadaraya-Watson Estimator)
+
+I am using something similar to Nadaraya-Watson estimator for estimating $m$. The proposed estimator is as follows:
+
+$$ \hat{m}(X_{(t)}) = \frac{\Sigma_{i = 1}^n K(\space ||X - X_{(t)}^i||_{L_2}\space / \space h) y_i}{\Sigma_{i = 1}^n K(\space ||X - X_{(t)}^i||_{L_2}/ h)}$$
+
+where:
+
+$K(.)$ is a valid kernel. I have used standard Normal $N(0, 1)$
+
+$h$ is the band-width
+
+$||.||$ is the norm on $L_{2[0, 1]}$ space
+
+## Choosing the Bandwidth (h)
+
+In order to choose the appropriate band-width for the simulated sample data, I am using K-fold cross validation.
+
+Here are the steps I followed:
+
+1.  I generate a grid of band-width containing 21 values - $h = \{0.05, 0.075, ... 0.55\}$
+
+2.  Then I perform K-fold cross validation (with $K = 4$), and calculate the sum of the MSE obtained from cross-validation, for every h in the grid.
+
+3.  Chose the $h$ which gives the lowest sum of MSE from the K cross validation results.
+
+```{r choose_bandwidth, fig.align = 'center', fig.width = 4}
+# x <- predict for this x
+# bw <- bandwidth
+# X_train <- given sample
+# y_train <- given sample
+predict_x <- function(x, bw, X_sample, y_sample)
+{
+  n <- length(y_sample)
+  weights <- numeric(length = n)
+  for(i in 1:n)
+  {
+    distance <- integrate(f = function(t){(evaluate_x(X_sample[i, ], t) - evaluate_x(x, t))^2},
+                          lower = 0, upper = 1)$value
+    distance <- sqrt(distance)
+    weights[i] <- dnorm(x = distance/bw)
+  }
+  estimate <- weighted.mean(x = y_sample, w = weights)
+  
+  return(estimate)
+}
+
+# Cross Validation
+k_cross_val <- function(X_sample, y_sample, bw, k = 4)
+{
+  # Stores mse for k-folds
+  mse <- numeric(length = k)
+  
+  n <- length(y_sample)
+  div <- n / k
+  
+  for(i in 1:k)
+  {
+    # Splitting
+    X_train <- X_sample[-( ((i-1)*div + 1):(i*div) ), ]
+    X_test <- X_sample[((i-1)*div + 1):(i*div), ]
+    
+    y_train <- y_sample[-( ((i-1)*div + 1):(i*div) )]
+    y_test <- y_sample[((i-1)*div + 1):(i*div)]
+    
+    y_pred <- apply(X = X_test, MARGIN = 1, 
+                    FUN = function(x){predict_x(x, bw, X_train, y_train)})
+    
+    mse[i] <- mean((y_test - y_pred)^2)
+  }
+  
+  return(mse)
+}
+
+# Making a grid
+grid_bw <- seq(from = 0.05, to = 0.55, length = 21)
+mse_bw <- numeric(length = length(grid_bw))
+for(i in 1:length(grid_bw))
+{
+  mse_bw[i] <- sum(k_cross_val(X_sample = X_sample, y_sample = y_sample,
+                          bw = grid_bw[i], k = 4))
+  # print(paste(i, "/", length(grid_bw), "done"))
+}
+
+plot(x = grid_bw, y = mse_bw,
+     type = 'l', lwd = 2,
+     xlab = "h", ylab = "sum of MSE",
+     main = "sum of MSE vs Band-width")
+
+chosen_bw <- grid_bw[which.min(mse_bw)]
+
+print(paste("Chosen Band-width:", chosen_bw))
+```
+
+# Estimation for new data
+
+Now, we generate 100 new $(X_{(t)}, \space y)$ in order to evaluate the performance of our estimator.
+
+Here are some of the estimates made for the newly generated data:
+
+## Estimation using Linear Regression:
+```{r prediction_linear}
+
+X_data_train <- matrix(0, nrow = n_samples, ncol = n_time_pts)
+X_data_test <- matrix(0, nrow = n_test, ncol = n_time_pts)
+for(i in 1:n_samples)
+{
+  X_data_train[i, ] <- evaluate_x(X_sample[i, ], grid_x)
+}
+for(i in 1:n_test)
+{
+  X_data_test[i, ] <- evaluate_x(X_test[i, ], grid_x)
+}
+
+y_data_train <- y_sample
+y_data_test <- y_real
+
+basis <- create.bspline.basis(rangeval = c(0, 1), nbasis = 10)
+betalist <- list()
+betalist[[1]] <- fdPar(basis, Lfdobj = 0, lambda = 1e-2)
+
+fd_train <- Data2fd(argvals = grid_x, y = t(X_data_train), basisobj = basis)
+fd_test <- Data2fd(argvals = grid_x, y = t(X_data_test), basisobj = basis)
+
+fd_model <- fRegress(y_data_train, fd_train, betalist = betalist, method = "fRegress")
+y_pred_lin <- predict(fd_model, newdata = list(fd_test))
+
+mse_lin <- mean((y_real - y_pred_lin)^2)
+
+predict_table <- cbind(y_real, y_pred_lin, y_real - y_pred_lin)
+colnames(predict_table) = c("Real y", "Estimated y", "Error")
+
+print(head(predict_table))
+
+print(paste("MSE = ", mse_lin))
+
+```
+
+## Estimation using proposed estimator
+
+```{r prediction_test}
+y_pred_pro <- apply(X = X_test, MARGIN = 1, 
+                FUN = function(x){predict_x(x, chosen_bw, X_sample, y_sample)})
+
+mse_pro <- mean((y_real - y_pred_pro)^2)
+
+predict_table <- cbind(y_real, y_pred_pro, y_real - y_pred_pro)
+colnames(predict_table) = c("Real y", "Estimated y", "Error")
+
+print(head(predict_table))
+
+print(paste("MSE = ", mse_pro))
+```
+
+# Conclusion
+
+Both estimators successfully predicted the dependent variable; however, the Nadaraya-Watson estimator outperformed the linear model slightly. This indicates that the linear model may not be the most appropriate fit for the data.
+
+<!-- # Effect of sample size (n_samples) -->
+
+<!-- Here we try to evaluate the performance of the estimator with changing value of n_samples. We will evaluate the same simulated for n_samples = {40, 100, 200, 300, 500} -->
