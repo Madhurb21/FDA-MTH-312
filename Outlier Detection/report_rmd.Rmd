@@ -1,0 +1,177 @@
+---
+title: "Outlier Detection"
+author: "Madhur Bansal (210572)"
+date: "2024-03-15"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+The objective is so generate simulated data along with some outliers. Then we have to propose a method detect the outliers and estimate the proportion of outliers in the data.
+
+# Simulating Data:
+
+We generate a random $X_{(t)}$ from $L^2_{[0, 1]}$ space using the following: $$X_{(t)} = 0.5 \space (c_1sin(10.c_1.t) + c_2sin(10.c_2.t) + c_3sin(10.c_3.t)) + c_4$$ where $c_i$ are random constants from $Unif(0, 1)$.
+
+```{r data_simulation}
+library(fda)
+library(stats)
+
+set.seed(1)
+
+n_samples <- 100
+t <- seq(from = 0, to = 1, length = 100)
+prop <- 0.1 # Proportion of outliers
+
+X_sample_1 <- matrix(data = 0, nrow = length(t), ncol = n_samples)
+X_sample_2 <- matrix(data = 0, nrow = length(t), ncol = n_samples)
+y_outlier_1 <- numeric(length = n_samples)
+y_outlier_2 <- numeric(length = n_samples)
+
+# Function generator
+generate_fn <- function(t, max = 0.5)
+{
+  c <- runif(n = 3, min = 0, max = max)
+  t1 <- c[1]*sin(10*c[1]*(t))
+  t2 <- c[2]*sin(10*c[2]*(t))
+  t3 <- c[3]*sin(10*c[3]*t)
+  X <- 0.5*(t1 + t2 + t3) + exp(t) + rnorm(1, mean = 0, sd = max)
+  return(X)
+}
+
+```
+
+In this analysis, I have generated a total of 100 samples, with exactly 10 of them as outliers. I explore two different cases: Frequency Difference and Scale Difference
+
+-   In case 1, the outliers have similar shape to the data but attain more extreme values compared to the data. To introduce this difference, I multiply a random generated value uniform distribution $Unif(1, 2)$ to the original function.
+
+-   In case 2, the outliers have a different frequency compared to the rest of the data. To achieve this, I multiply the frequency of sinusoidal function with 10*c where c ~ runif(1, 1.5)
+
+Here are the plots of the datasets for the two cases:
+
+```{r case_1_data, fig.align = 'center', fig.height = 4, fig.width = 5}
+for(i in 1:(n_samples*(1-prop)))
+{
+  c <- runif(1, min = 0.5, max = 0.8)
+  X_sample_2[ ,i] <- generate_fn(t = t, max = 0.1) + c*sin(10*t + runif(1)) + rnorm(length(t), sd = 0.1)
+} 
+for(i in (n_samples*(1-prop) + 1):n_samples)
+{
+  c <- runif(1, min = 1, max = 2)
+  X_sample_2[ ,i] <- generate_fn(t = t, max = 0.1) + c*sin(10*t + runif(1)) + rnorm(length(t), sd = 0.1)
+  y_outlier_2[i] <- 1
+}
+
+# Plots
+plot(x = 0, y = 0, type = 'n',
+     xlim = c(0, 1), ylim = c(0, 5),
+     xlab = 't', ylab = 'X(t)', 
+     main = 'Case 2 (More Extreme Values)')
+for(i in 1:n_samples)
+{
+  lines(x = t, y = X_sample_2[ ,i], col = i)
+}
+```
+
+```{r case_2_data, fig.align = 'center', fig.height = 4, fig.width = 5}
+for(i in 1:(n_samples*(1-prop)))
+{
+  c <- runif(1, min = 0.5, max = 1)
+  X_sample_1[ ,i] <- generate_fn(t = t, max = 0.1) + sin(5*c*t + runif(1)) + rnorm(length(t), sd = 0.1)
+} 
+for(i in (n_samples*(1-prop) + 1):n_samples)
+{
+  c <- runif(1, min = 1, max = 1.5)
+  X_sample_1[ ,i] <- generate_fn(t = t, max = 0.1) + sin(20*c*t + runif(1)) + rnorm(length(t), sd = 0.1)
+  y_outlier_1[i] <- 1
+}
+
+# Plots
+plot(x = 0, y = 0, type = 'n',
+     xlim = c(0, 1), ylim = c(0, 5),
+     xlab = 't', ylab = 'X(t)', 
+     main = 'Case 1 (Different Frequency)')
+for(i in 1:n_samples)
+{
+  lines(x = t, y = X_sample_1[ ,i], col = i)
+}
+
+```
+
+# Proposed method:
+
+To detect the outliers in the data, I calculate the depth of the $X_{(t)}$'s in the dataset. Subsequently, then assuming the depth comes from a normal distribution, a cut-off value based on the 95% region for $N(\mu, \sigma^2)$ where $\mu = mean(depth)$ and $\sigma^2 = Var(depth)$. Any samples that lie outside the 95% region, are labelled as outliers.
+
+**Note**: As a measure of depth, we are using Modified Band-Depth (MBD) presented by Sara Lopez-Pintado and Juan Romo. This is the link to the original paper: <https://www.jstor.org/stable/40592217> 
+
+# Case 1
+
+The method works well in this case. It is able to identify most of the outliers correctly.
+
+```{r case_1_outlier, fig.height = 4}
+par(mfrow = c(1, 2))
+
+depth <- fbplot(fit = X_sample_2, plot = F)$depth
+plot(density(depth), xlab = 'Depth', ylab = 'Density',
+     main = 'Case 2')
+
+mean_depth <- mean(depth)
+sd_depth <- sd(depth)
+z_score_depth <- (depth - mean_depth) / sd_depth
+
+outliers_predicted <- as.numeric((z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+plot(x = 0, y = 0, type = 'n',
+     xlim = c(0, 1), ylim = c(0, 5),
+     xlab = 't', ylab = 'Y(t)', main = 'Outliers')
+for(i in 1:n_samples)
+{
+  lines(x = t, y = X_sample_2[ ,i], col = outliers_predicted[i] + 1, 
+        lwd = outliers_predicted[i] + 1)
+}
+
+is_outlier <- y_outlier_2
+predicted_outlier <- outliers_predicted
+
+print(table(is_outlier, predicted_outlier))
+
+```
+
+# Case 2
+
+In this case, the method was unable to accurately predict the outliers. Due to higher frequency of the random function, the function spends most of the time inside the band. Consequently, these functions, which should be identified as outliers, are instead ranked with a greater depth than non-outliers
+
+```{r case_2_outlier, fig.height = 4}
+par(mfrow = c(1, 2))
+
+depth <- fbplot(fit = X_sample_1, plot = F)$depth
+plot(density(depth), xlab = 'Depth', ylab = 'Density',
+     main = 'Case 2')
+
+mean_depth <- mean(depth)
+sd_depth <- sd(depth)
+z_score_depth <- (depth - mean_depth) / sd_depth
+
+outliers_predicted <- as.numeric((z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+plot(x = 0, y = 0, type = 'n',
+     xlim = c(0, 1), ylim = c(0, 5),
+     xlab = 't', ylab = 'Y(t)', main = 'Outliers')
+for(i in 1:n_samples)
+{
+  lines(x = t, y = X_sample_1[ ,i], col = outliers_predicted[i] + 1, 
+        lwd = outliers_predicted[i] + 1)
+}
+
+is_outlier <- y_outlier_1
+predicted_outlier <- outliers_predicted
+
+print(table(is_outlier, predicted_outlier))
+```
+
+# Conclusion
+
+The method was effective in detecting most outliers with more extreme values. However, it struggled to accurately identify outliers that had higher frequency but were on the same scale. To improve the performance, additional features that account for frequency variations can be included while detecting outliers.
