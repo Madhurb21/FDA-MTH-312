@@ -13,14 +13,14 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 
 # Simulating the data
 
-We construct a random variable $X_{(t)}$ from $L^2_{[0, 1]}$ space using the following: $$X_{(t)} = (c_1 * e^t) + sin(c_2 * 10t) + (c_3*2t) $$ where $c_1$, $c_2$, $c_3$ are random variables drawn from $uniform(0, 2)$. We generate (n = 300) samples of $X_{(t)}$ as our given data. Here is the plot of 5 samples from the generated data.
+We construct a random variable $X_{(t)}$ from $L^2_{[0, 1]}$ space using the following: $$X_{(t)} = (c_1 * e^t) + sin(c_2 * 10t) + (c_3*2t) $$ where $c_1$, $c_2$, $c_3$ are random variables drawn from $uniform(0, 2)$. We generate (n = 100) samples of $X_{(t)}$ as our given data. Here is the plot of 5 samples from the generated data.
 
 ```{r data_generation}
 library(fda)
 
 set.seed(1)
 
-n_samples <- 300
+n_samples <- 100
 n_test <- 100
 n_time_pts <- 100
 
@@ -83,17 +83,6 @@ Here are the real values of $y_i$ for above $X_{(t)}^i$ in respective order:
 print(head(y_sample))
 ```
 
-# Functional Linear Regression
-
-Initially I predict the response variable using in-built functional linear regression function *fdRegress(.)*. The only reason to predict using the Linear Regression model is to get a baseline for model comparison. It tries to find $\beta$ such that:
-
-$$ Y_i = \beta_0 + \int_0^1X_{i}(t)\beta(t)dt + \epsilon_i$$
-Both $X_i(t)$ and $\beta(t)$ can be expanded using orthonormal basis functions in $L_{2}$ space, say K:
-
-$$X_i(t) \approx \sum_{k=1}^Kc_{ik}\phi_k \space,  \space \beta(t)  \approx \sum_{k=1}^Kb_{k}\phi_k \space$$
-Expanding the respective terms, we get:
-$$Y_i = \beta_0 + \sum_{k = 1}^Kb_kc_{ik}$$
-
 # Proposed Estimator (Based on Nadaraya-Watson Estimator)
 
 I am using something similar to Nadaraya-Watson estimator for estimating $m$. The proposed estimator is as follows:
@@ -120,7 +109,7 @@ Here are the steps I followed:
 
 3.  Chose the $h$ which gives the lowest sum of MSE from the K cross validation results.
 
-```{r choose_bandwidth, fig.align = 'center', fig.width = 4}
+```{r choose_bandwidth, fig.align = 'center', fig.width = 4, fig.height=3}
 # x <- predict for this x
 # bw <- bandwidth
 # X_train <- given sample
@@ -194,63 +183,30 @@ Now, we generate 100 new $(X_{(t)}, \space y)$ in order to evaluate the performa
 
 Here are some of the estimates made for the newly generated data:
 
-## Estimation using Linear Regression:
-```{r prediction_linear}
-
-X_data_train <- matrix(0, nrow = n_samples, ncol = n_time_pts)
-X_data_test <- matrix(0, nrow = n_test, ncol = n_time_pts)
-for(i in 1:n_samples)
-{
-  X_data_train[i, ] <- evaluate_x(X_sample[i, ], grid_x)
-}
-for(i in 1:n_test)
-{
-  X_data_test[i, ] <- evaluate_x(X_test[i, ], grid_x)
-}
-
-y_data_train <- y_sample
-y_data_test <- y_real
-
-basis <- create.bspline.basis(rangeval = c(0, 1), nbasis = 10)
-betalist <- list()
-betalist[[1]] <- fdPar(basis, Lfdobj = 0, lambda = 1e-2)
-
-fd_train <- Data2fd(argvals = grid_x, y = t(X_data_train), basisobj = basis)
-fd_test <- Data2fd(argvals = grid_x, y = t(X_data_test), basisobj = basis)
-
-fd_model <- fRegress(y_data_train, fd_train, betalist = betalist, method = "fRegress")
-y_pred_lin <- predict(fd_model, newdata = list(fd_test))
-
-mse_lin <- mean((y_real - y_pred_lin)^2)
-
-predict_table <- cbind(y_real, y_pred_lin, y_real - y_pred_lin)
-colnames(predict_table) = c("Real y", "Estimated y", "Error")
-
-print(head(predict_table))
-
-print(paste("MSE = ", mse_lin))
-
-```
-
-## Estimation using proposed estimator
-
 ```{r prediction_test}
-y_pred_pro <- apply(X = X_test, MARGIN = 1, 
+y_pred <- apply(X = X_test, MARGIN = 1, 
                 FUN = function(x){predict_x(x, chosen_bw, X_sample, y_sample)})
 
-mse_pro <- mean((y_real - y_pred_pro)^2)
+mse <- mean((y_real - y_pred)^2)
 
-predict_table <- cbind(y_real, y_pred_pro, y_real - y_pred_pro)
+predict_table <- cbind(y_real, y_pred, y_real - y_pred)
 colnames(predict_table) = c("Real y", "Estimated y", "Error")
 
 print(head(predict_table))
 
-print(paste("MSE = ", mse_pro))
+print(paste("MSE = ", mse))
+
+rss <- sum((y_real - y_pred) ^ 2)  ## residual sum of squares
+tss <- sum((y_real - mean(y_real)) ^ 2)  ## total sum of squares
+rsq <- 1 - rss/tss
+print(paste("R2 = ", rsq))
 ```
 
 # Conclusion
 
-Both estimators successfully predicted the dependent variable; however, the Nadaraya-Watson estimator outperformed the linear model slightly. This indicates that the linear model may not be the most appropriate fit for the data.
+The implementation of the Nadaraya-Watson estimator for functional regression was successful, with the model achieving a Mean Squared Error (MSE) of 1.09 and an R-squared (R²) score of 0.98. These results show that the model performs very well in terms of accuracy and explains almost all of the variability in the data.
+
+
 
 <!-- # Effect of sample size (n_samples) -->
 

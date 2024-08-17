@@ -112,5 +112,4 @@ for(i in 1:n_samples)
         lwd = outliers_predicted[i] + 1)
 }
 
-
 print(table(y_outlier_1, outliers_predicted))

@@ -128,33 +128,7 @@ colnames(predict_table) = c("Real y", "Predicted y", "Error")
 print(head(predict_table))
 print(mse)
 
-
-
-##### In-built Library #####
-
-X_data_train <- matrix(0, nrow = n_samples, ncol = n_time_pts)
-X_data_test <- matrix(0, nrow = n_test, ncol = n_time_pts)
-for(i in 1:n_samples)
-{
-  X_data_train[i, ] <- evaluate_x(X_sample[i, ], grid_x)
-}
-for(i in 1:n_test)
-{
-  X_data_test[i, ] <- evaluate_x(X_test[i, ], grid_x)
-}
-
-y_data_train <- y_sample
-y_data_test <- y_real
-
-basis <- create.bspline.basis(rangeval = c(0, 1), nbasis = 10)
-betalist <- list()
-betalist[[1]] <- fdPar(basis, Lfdobj = 0, lambda = 1e-2)
-
-fd_train <- Data2fd(argvals = grid_x, y = t(X_data_train), basisobj = basis)
-fd_test <- Data2fd(argvals = grid_x, y = t(X_data_test), basisobj = basis)
-
-fd_model <- fRegress(y_data_train, fd_train, betalist = betalist, method = "fRegress")
-y_pred <- predict(fd_model, newdata = list(fd_test))
-
-mse <- mean((y_data_test - y_pred)^2)
-print(mse)
+rss <- sum((y_real - y_pred) ^ 2)  ## residual sum of squares
+tss <- sum((y_real - mean(y_real)) ^ 2)  ## total sum of squares
+rsq <- 1 - rss/tss
+print(rsq)
