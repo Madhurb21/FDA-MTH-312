@@ -105,18 +105,22 @@ for(i in 1:n_samples)
 
 To detect the outliers in the data, I calculate the depth of the $X_{(t)}$'s in the dataset. Subsequently, then assuming the depth comes from a normal distribution, a cut-off value based on the 95% region for $N(\mu, \sigma^2)$ where $\mu = mean(depth)$ and $\sigma^2 = Var(depth)$. Any samples that lie outside the 95% region, are labelled as outliers.
 
-**Note**: As a measure of depth, we are using Modified Band-Depth (MBD) presented by Sara Lopez-Pintado and Juan Romo. This is the link to the original paper: <https://www.jstor.org/stable/40592217> 
+Then, I apply the following transformation to the data. This centers the data and allows to identify the outliers having different trend from rest of the data.
+$$T(X_i(t)) = X_i(t) - \frac{1}{T}\sum_{j = 1}^TX_{i}(j) \space  \forall \space i = 1(1)n $$
+After applying the transformation, I again find the outliers using 95% region (decribed above). Then, finally I apply a transformation to normalize the centred data. This helps in detecting the outliers which may have different shape than the data.
+$$T(X_i(t)) = \frac{X_i(t)}{||X_i(t)||_{L_2}} \space  \forall \space i = 1(1)n$$
+
+**Note**: As a measure of depth, we are using Modified Band-Depth (MBD) presented by Sara Lopez-Pintado and Juan Romo. This is the link to the original paper: <https://www.jstor.org/stable/40592217>. I also referenced this blog: <https://www.lancaster.ac.uk/stor-i-student-sites/harini-jayaraman/anomaly-detection-in-functional-data> in order to improve my implementation.
 
 # Case 1
 
 The method works well in this case. It is able to identify most of the outliers correctly.
 
 ```{r case_1_outlier, fig.height = 4}
-par(mfrow = c(1, 2))
 
 depth <- fbplot(fit = X_sample_2, plot = F)$depth
-plot(density(depth), xlab = 'Depth', ylab = 'Density',
-     main = 'Case 2')
+# plot(density(depth), xlab = 'Depth', ylab = 'Density',
+#      main = 'Case 2')
 
 mean_depth <- mean(depth)
 sd_depth <- sd(depth)
@@ -142,20 +146,69 @@ print(table(is_outlier, predicted_outlier))
 
 # Case 2
 
-In this case, the method was unable to accurately predict the outliers. Due to higher frequency of the random function, the function spends most of the time inside the band. Consequently, these functions, which should be identified as outliers, are instead ranked with a greater depth than non-outliers
+In this case also, the method was able to identify most of the outliers.
 
 ```{r case_2_outlier, fig.height = 4}
-par(mfrow = c(1, 2))
 
 depth <- fbplot(fit = X_sample_1, plot = F)$depth
-plot(density(depth), xlab = 'Depth', ylab = 'Density',
-     main = 'Case 2')
+# plot(density(depth), xlab = 'Depth', ylab = 'Density',
+#      main = 'Case 2')
 
 mean_depth <- mean(depth)
 sd_depth <- sd(depth)
 z_score_depth <- (depth - mean_depth) / sd_depth
 
 outliers_predicted <- as.numeric((z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+# Improvement using vertical transformation
+X_centred <- X_sample_1
+for(i in 1:n_samples)
+{
+  X_centred[, i] <- X_sample_1[, i] - mean(X_sample_1[, i])
+}
+depth <- fbplot(fit = X_centred, plot = F)$depth
+# plot(density(depth), xlab = 'Depth', ylab = 'Density',
+#      main = 'Case 2')
+
+mean_depth <- mean(depth)
+sd_depth <- sd(depth)
+z_score_depth <- (depth - mean_depth) / sd_depth
+
+outliers_predicted <- as.numeric((outliers_predicted) | (z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+# plot(x = 0, y = 0, type = 'n',
+#      xlim = c(0, 1), ylim = c(-2.5, 2.5),
+#      xlab = 't', ylab = 'Y(t)', main = 'Outliers')
+# for(i in 1:n_samples)
+# {
+#   lines(x = t, y = X_centred[ ,i], col = outliers_predicted[i] + 1, 
+#         lwd = outliers_predicted[i] + 1)
+# }
+
+# Improvement using scale transformation
+X_scaled <- X_centred
+for(i in 1:n_samples)
+{
+  X_scaled[, i] <- X_centred[ ,i] / sqrt(sum((X_centred[ ,i])^2))
+}
+depth <- fbplot(fit = X_scaled, plot = F)$depth
+# plot(density(depth), xlab = 'Depth', ylab = 'Density',
+#      main = 'Case 2')
+
+mean_depth <- mean(depth)
+sd_depth <- sd(depth)
+z_score_depth <- (depth - mean_depth) / sd_depth
+
+outliers_predicted <- as.numeric((outliers_predicted) | (z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+# plot(x = 0, y = 0, type = 'n',
+#      xlim = c(0, 1), ylim = c(-1, 1),
+#      xlab = 't', ylab = 'Y(t)', main = 'Outliers')
+# for(i in 1:n_samples)
+# {
+#   lines(x = t, y = X_scaled[ ,i], col = outliers_predicted[i] + 1, 
+#         lwd = outliers_predicted[i] + 1)
+# }
 
 plot(x = 0, y = 0, type = 'n',
      xlim = c(0, 1), ylim = c(0, 5),
@@ -166,6 +219,8 @@ for(i in 1:n_samples)
         lwd = outliers_predicted[i] + 1)
 }
 
+# print(table(y_outlier_1, outliers_predicted))
+
 is_outlier <- y_outlier_1
 predicted_outlier <- outliers_predicted
 
@@ -174,4 +229,4 @@ print(table(is_outlier, predicted_outlier))
 
 # Conclusion
 
-The method was effective in detecting most outliers with more extreme values. However, it struggled to accurately identify outliers that had higher frequency but were on the same scale. To improve the performance, additional features that account for frequency variations can be included while detecting outliers.
+The method successfully identified most of the outliers in two scenarios: functions with more extreme values and those with higher frequency patterns. This shows that the approach is effective in detecting different types of anomalies in the data.

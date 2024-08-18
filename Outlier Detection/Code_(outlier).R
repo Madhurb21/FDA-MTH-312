@@ -112,4 +112,54 @@ for(i in 1:n_samples)
         lwd = outliers_predicted[i] + 1)
 }
 
+# Improvement using vertical transformation
+X_centred <- X_sample_1
+for(i in 1:n_samples)
+{
+  X_centred[, i] <- X_sample_1[, i] - mean(X_sample_1[, i])
+}
+depth <- fbplot(fit = X_centred, plot = F)$depth
+plot(density(depth), xlab = 'Depth', ylab = 'Density',
+     main = 'Case 2')
+
+mean_depth <- mean(depth)
+sd_depth <- sd(depth)
+z_score_depth <- (depth - mean_depth) / sd_depth
+
+outliers_predicted <- as.numeric((outliers_predicted) | (z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+plot(x = 0, y = 0, type = 'n',
+     xlim = c(0, 1), ylim = c(-2.5, 2.5),
+     xlab = 't', ylab = 'Y(t)', main = 'Outliers')
+for(i in 1:n_samples)
+{
+  lines(x = t, y = X_centred[ ,i], col = outliers_predicted[i] + 1, 
+        lwd = outliers_predicted[i] + 1)
+}
+
+# Improvement using scale transformation
+X_scaled <- X_centred
+for(i in 1:n_samples)
+{
+  X_scaled[, i] <- X_centred[ ,i] / sqrt(sum((X_centred[ ,i])^2))
+}
+depth <- fbplot(fit = X_scaled, plot = F)$depth
+plot(density(depth), xlab = 'Depth', ylab = 'Density',
+     main = 'Case 2')
+
+mean_depth <- mean(depth)
+sd_depth <- sd(depth)
+z_score_depth <- (depth - mean_depth) / sd_depth
+
+outliers_predicted <- as.numeric((outliers_predicted) | (z_score_depth <= -1.96) | (z_score_depth >= 1.96))
+
+plot(x = 0, y = 0, type = 'n',
+     xlim = c(0, 1), ylim = c(-1, 1),
+     xlab = 't', ylab = 'Y(t)', main = 'Outliers')
+for(i in 1:n_samples)
+{
+  lines(x = t, y = X_scaled[ ,i], col = outliers_predicted[i] + 1, 
+        lwd = outliers_predicted[i] + 1)
+}
+
 print(table(y_outlier_1, outliers_predicted))
